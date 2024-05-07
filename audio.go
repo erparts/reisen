@@ -5,6 +5,7 @@ package reisen
 // #include <libavformat/avformat.h>
 // #include <libavutil/avutil.h>
 // #include <libswresample/swresample.h>
+// AVChannelLayout stereo = AV_CHANNEL_LAYOUT_STEREO;
 import "C"
 import (
 	"fmt"
@@ -54,12 +55,15 @@ func (audio *AudioStream) Open() error {
 		return err
 	}
 
-	audio.swrCtx = C.swr_alloc_set_opts(nil,
-		C.AV_CH_FRONT_LEFT|C.AV_CH_FRONT_RIGHT,
-		C.AV_SAMPLE_FMT_S16, audio.codecCtx.sample_rate,
-		channelLayout(audio), audio.
-			codecCtx.sample_fmt, audio.codecCtx.
-			sample_rate, 0, nil)
+	C.swr_alloc_set_opts2(&audio.swrCtx,
+		&C.stereo,
+		C.AV_SAMPLE_FMT_S16,
+		audio.codecCtx.sample_rate,
+		&audio.codecCtx.ch_layout,
+		audio.codecCtx.sample_fmt,
+		audio.codecCtx.sample_rate,
+		0,
+		nil)
 
 	if audio.swrCtx == nil {
 		return fmt.Errorf(
