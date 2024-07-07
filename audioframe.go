@@ -23,14 +23,12 @@ func (frame *AudioFrame) Data() []byte {
 }
 
 // newAudioFrame returns a newly created audio frame.
-func newAudioFrame(stream Stream, pts int64, indCoded, indDisplay int, data []byte) *AudioFrame {
+func newAudioFrame(stream Stream, pts int64, data []byte) *AudioFrame {
 	frame := new(AudioFrame)
 
 	frame.stream = stream
 	frame.pts = pts
 	frame.data = data
-	frame.indexCoded = indCoded
-	frame.indexDisplay = indDisplay
 
 	return frame
 }

@@ -8,7 +8,7 @@ func bufferSize(maxBufferSize C.int) C.ulong {
 }
 
 func channelLayout(audio *AudioStream) C.longlong {
-	return C.longlong(audio.codecCtx.channel_layout)
+	return C.longlong(audio.codecParams.ch_layout.nb_channels)
 }
 
 func rewindPosition(dur int64) C.longlong {
