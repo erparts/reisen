@@ -9,7 +9,6 @@ package reisen
 // #include <inttypes.h>
 import "C"
 import (
-	"fmt"
 	"time"
 )
 
@@ -33,10 +32,7 @@ type baseFrame struct {
 // should be played.
 func (frame *baseFrame) PresentationOffset() (time.Duration, error) {
 	tbNum, tbDen := frame.stream.TimeBase()
-	tb := float64(tbNum) / float64(tbDen)
-	tm := float64(frame.pts) * tb
-
-	return time.ParseDuration(fmt.Sprintf("%fs", tm))
+	return time.Second * time.Duration(tbNum) * time.Duration(frame.pts) / time.Duration(tbDen), nil
 }
 
 // IndexCoded returns the index of
