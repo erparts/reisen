@@ -5,7 +5,6 @@ package reisen
 // #include <libavformat/avformat.h>
 // #include <libavutil/avutil.h>
 // #include <libswresample/swresample.h>
-// AVChannelLayout stereo = AV_CHANNEL_LAYOUT_STEREO;
 import "C"
 import (
 	"fmt"
@@ -31,7 +30,7 @@ type AudioStream struct {
 // ChannelCount returns the number of channels
 // (1 for mono, 2 for stereo, etc.).
 func (audio *AudioStream) ChannelCount() int {
-	return int(audio.codecParams.channels)
+	return int(audio.codecParams.ch_layout.nb_channels)
 }
 
 // SampleRate returns the sample rate of the
@@ -55,17 +54,12 @@ func (audio *AudioStream) Open() error {
 		return err
 	}
 
-	C.swr_alloc_set_opts2(&audio.swrCtx,
-		&C.stereo,
-		C.AV_SAMPLE_FMT_S16,
-		audio.codecCtx.sample_rate,
-		&audio.codecCtx.ch_layout,
-		audio.codecCtx.sample_fmt,
-		audio.codecCtx.sample_rate,
-		0,
-		nil)
+	ret := C.swr_alloc_set_opts2(&audio.swrCtx,
+		&audio.codecParams.ch_layout, C.AV_SAMPLE_FMT_DBL, audio.codecCtx.sample_rate,
+		&audio.codecParams.ch_layout, C.AV_SAMPLE_FMT_DBL, audio.codecCtx.sample_rate,
+		0, nil)
 
-	if audio.swrCtx == nil {
+	if ret != 0 {
 		return fmt.Errorf(
 			"couldn't allocate an SWR context")
 	}
@@ -107,7 +101,7 @@ func (audio *AudioStream) ReadAudioFrame() (*AudioFrame, bool, error) {
 	maxBufferSize := C.av_samples_get_buffer_size(
 		nil, StandardChannelCount,
 		audio.frame.nb_samples,
-		C.AV_SAMPLE_FMT_S16, 1)
+		C.AV_SAMPLE_FMT_DBL, 1)
 
 	if maxBufferSize < 0 {
 		return nil, false, fmt.Errorf(
@@ -143,8 +137,7 @@ func (audio *AudioStream) ReadAudioFrame() (*AudioFrame, bool, error) {
 		audio.buffer), maxBufferSize)
 	frame := newAudioFrame(audio,
 		int64(audio.frame.pts),
-		int(audio.frame.coded_picture_number),
-		int(audio.frame.display_picture_number), data)
+		data)
 
 	return frame, true, nil
 }
