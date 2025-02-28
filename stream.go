@@ -217,8 +217,9 @@ func (stream *baseStream) FrameCount() int64 {
 // ApplyFilter applies a filter defined
 // by the given string to the stream.
 func (stream *baseStream) ApplyFilter(args string) error {
-	status := C.av_bsf_list_parse_str(
-		C.CString(args), &stream.filterCtx)
+	cArgs := C.CString(args)
+	defer C.free(unsafe.Pointer(cArgs))
+	status := C.av_bsf_list_parse_str(cArgs, &stream.filterCtx)
 
 	if status < 0 {
 		return fmt.Errorf(
@@ -285,9 +286,9 @@ func (stream *baseStream) RemoveFilter() error {
 	C.av_bsf_free(&stream.filterCtx)
 	stream.filterCtx = nil
 
-	C.av_free(unsafe.Pointer(stream.filterInPacket))
+	C.av_packet_free(&stream.filterInPacket)
+	C.av_packet_free(&stream.filterOutPacket)
 	stream.filterInPacket = nil
-	C.av_free(unsafe.Pointer(stream.filterOutPacket))
 	stream.filterOutPacket = nil
 
 	return nil
@@ -429,15 +430,11 @@ func (stream *baseStream) read() (bool, error) {
 
 // close closes the stream for decoding.
 func (stream *baseStream) close() error {
-	C.av_free(unsafe.Pointer(stream.frame))
+	C.av_frame_free(&stream.frame)
 	stream.frame = nil
 
-	status := C.avcodec_close(stream.codecCtx)
-
-	if status < 0 {
-		return fmt.Errorf(
-			"%d: couldn't close the codec", status)
-	}
+	C.avcodec_free_context(&stream.codecCtx)
+	stream.codecCtx = nil
 
 	if stream.filterCtx != nil {
 		C.av_bsf_free(&stream.filterCtx)

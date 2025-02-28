@@ -40,11 +40,7 @@ func (pkt *Packet) Type() StreamType {
 // Data returns the data
 // encoded in the packet.
 func (pkt *Packet) Data() []byte {
-	buf := make([]byte, pkt.size)
-
-	copy(buf, pkt.data)
-
-	return buf
+	return pkt.data
 }
 
 // Returns the size of the
@@ -59,14 +55,16 @@ func newPacket(media *Media, cPkt *C.AVPacket) *Packet {
 	pkt := &Packet{
 		media:       media,
 		streamIndex: int(cPkt.stream_index),
-		data: C.GoBytes(unsafe.Pointer(
-			cPkt.data), cPkt.size),
-		pts:      int64(cPkt.pts),
-		dts:      int64(cPkt.dts),
-		pos:      int64(cPkt.pos),
-		duration: int64(cPkt.duration),
-		size:     int(cPkt.size),
-		flags:    int(cPkt.flags),
+		pts:         int64(cPkt.pts),
+		dts:         int64(cPkt.dts),
+		pos:         int64(cPkt.pos),
+		duration:    int64(cPkt.duration),
+		size:        int(cPkt.size),
+		flags:       int(cPkt.flags),
+	}
+
+	if cPkt.data != nil && cPkt.size > 0 {
+		pkt.data = C.GoBytes(unsafe.Pointer(cPkt.data), cPkt.size)
 	}
 
 	return pkt

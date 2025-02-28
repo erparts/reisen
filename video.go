@@ -54,51 +54,46 @@ func (video *VideoStream) Open() error {
 // decoding with the specified parameters.
 func (video *VideoStream) OpenDecode(width, height int, alg InterpolationAlgorithm) error {
 	err := video.open()
-
 	if err != nil {
 		return err
 	}
 
 	video.rgbaFrame = C.av_frame_alloc()
-
 	if video.rgbaFrame == nil {
-		return fmt.Errorf(
-			"couldn't allocate a new RGBA frame")
+		return fmt.Errorf("couldn't allocate a new RGBA frame")
 	}
 
 	video.bufSize = C.av_image_get_buffer_size(
 		C.AV_PIX_FMT_RGBA, C.int(width), C.int(height), 1)
-
 	if video.bufSize < 0 {
-		return fmt.Errorf(
-			"%d: couldn't get the buffer size", video.bufSize)
+		C.av_frame_free(&video.rgbaFrame)
+		return fmt.Errorf("%d: couldn't get the buffer size", video.bufSize)
 	}
 
 	buf := (*C.uint8_t)(unsafe.Pointer(
 		C.av_malloc(bufferSize(video.bufSize))))
-
 	if buf == nil {
-		return fmt.Errorf(
-			"couldn't allocate an AV buffer")
+		C.av_frame_free(&video.rgbaFrame)
+		return fmt.Errorf("couldn't allocate an AV buffer")
 	}
 
 	status := C.av_image_fill_arrays(&video.rgbaFrame.data[0],
 		&video.rgbaFrame.linesize[0], buf, C.AV_PIX_FMT_RGBA,
 		C.int(width), C.int(height), 1)
-
 	if status < 0 {
-		return fmt.Errorf(
-			"%d: couldn't fill the image arrays", status)
+		C.av_free(unsafe.Pointer(buf)) // Free buffer on failure
+		C.av_frame_free(&video.rgbaFrame)
+		return fmt.Errorf("%d: couldn't fill the image arrays", status)
 	}
 
 	video.swsCtx = C.sws_getContext(video.codecCtx.width,
 		video.codecCtx.height, video.codecCtx.pix_fmt,
 		C.int(width), C.int(height),
 		C.AV_PIX_FMT_RGBA, C.int(alg), nil, nil, nil)
-
 	if video.swsCtx == nil {
-		return fmt.Errorf(
-			"couldn't create an SWS context")
+		C.av_free(unsafe.Pointer(buf)) // Free buffer
+		C.av_frame_free(&video.rgbaFrame)
+		return fmt.Errorf("couldn't create an SWS context")
 	}
 
 	return nil
@@ -113,29 +108,26 @@ func (video *VideoStream) ReadFrame() (Frame, bool, error) {
 // from the video stream.
 func (video *VideoStream) ReadVideoFrame() (*VideoFrame, bool, error) {
 	ok, err := video.read()
-
 	if err != nil {
 		return nil, false, err
 	}
-
 	if ok && video.skip {
 		return nil, true, nil
 	}
-
-	// No more data.
 	if !ok {
 		return nil, false, nil
 	}
 
+	// Convert frame to RGBA using sws_scale
 	C.sws_scale(video.swsCtx, &video.frame.data[0],
 		&video.frame.linesize[0], 0,
 		video.codecCtx.height,
 		&video.rgbaFrame.data[0],
 		&video.rgbaFrame.linesize[0])
 
-	data := C.GoBytes(unsafe.
-		Pointer(video.rgbaFrame.data[0]),
-		video.bufSize)
+	// Convert the frame data to Go []byte
+	data := C.GoBytes(unsafe.Pointer(video.rgbaFrame.data[0]), video.bufSize)
+
 	frame := newVideoFrame(video, int64(video.frame.pts),
 		int(video.frame.coded_picture_number),
 		int(video.frame.display_picture_number),
@@ -147,15 +139,20 @@ func (video *VideoStream) ReadVideoFrame() (*VideoFrame, bool, error) {
 // Close closes the video stream for decoding.
 func (video *VideoStream) Close() error {
 	err := video.close()
-
 	if err != nil {
 		return err
 	}
 
-	C.av_free(unsafe.Pointer(video.rgbaFrame))
-	video.rgbaFrame = nil
-	C.sws_freeContext(video.swsCtx)
-	video.swsCtx = nil
+	if video.rgbaFrame != nil {
+		C.av_free(unsafe.Pointer(video.rgbaFrame.data[0]))
+		C.av_frame_free(&video.rgbaFrame)
+		video.rgbaFrame = nil
+	}
+
+	if video.swsCtx != nil {
+		C.sws_freeContext(video.swsCtx) // Free SwsContext
+		video.swsCtx = nil
+	}
 
 	return nil
 }
