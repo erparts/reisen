@@ -28,12 +28,9 @@ type baseFrame struct {
 
 // PresentationOffset returns the duration offset since the start of the media
 // at which the frame should be played.
-func (f *baseFrame) PresentationOffset() (time.Duration, error) {
-	tbNum, tbDen := f.stream.TimeBase()
-	tb := float64(tbNum) / float64(tbDen)
-	tm := float64(f.pts) * tb
-
-	return time.Duration(tm * float64(time.Second)), nil
+func (s *baseFrame) PresentationOffset() (time.Duration, error) {
+	tbNum, tbDen := s.stream.TimeBase()
+	return time.Second * time.Duration(tbNum) * time.Duration(s.pts) / time.Duration(tbDen), nil
 }
 
 // IndexCoded returns the index of the frame in the bitstream order.
