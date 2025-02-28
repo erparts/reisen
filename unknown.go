@@ -18,16 +18,16 @@ type UnknownStream struct {
 }
 
 // Open is just a stub.
-func (unknown *UnknownStream) Open() error {
+func (s *UnknownStream) Open() error {
 	return nil
 }
 
 // ReadFrame is just a stub.
-func (unknown *UnknownStream) ReadFrame() (Frame, bool, error) {
+func (s *UnknownStream) ReadFrame() (Frame, bool, error) {
 	return nil, false, fmt.Errorf("UnknownStream.ReadFrame() not implemented")
 }
 
 // Close is just a stub.
-func (unknown *UnknownStream) Close() error {
+func (s *UnknownStream) Close() error {
 	return nil
 }

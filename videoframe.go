@@ -16,16 +16,6 @@ type VideoFrame struct {
 	img *image.RGBA
 }
 
-// Data returns a byte slice of RGBA pixels of the frame image.
-func (frame *VideoFrame) Data() []byte {
-	return frame.img.Pix
-}
-
-// Image returns the RGBA image of the frame.
-func (frame *VideoFrame) Image() *image.RGBA {
-	return frame.img
-}
-
 // newVideoFrame creates a new video frame.
 func newVideoFrame(stream Stream, pts int64, indCoded, indDisplay, width, height int, pix []byte) *VideoFrame {
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
@@ -40,4 +30,14 @@ func newVideoFrame(stream Stream, pts int64, indCoded, indDisplay, width, height
 		},
 		img: img,
 	}
+}
+
+// Data returns a byte slice of RGBA pixels of the frame image.
+func (f *VideoFrame) Data() []byte {
+	return f.img.Pix
+}
+
+// Image returns the RGBA image of the frame.
+func (f *VideoFrame) Image() *image.RGBA {
+	return f.img
 }

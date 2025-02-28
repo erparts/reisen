@@ -5,7 +5,6 @@ package reisen
 import "C"
 
 const (
-	// TimeBase is a global time base
-	// used for describing media containers.
+	// TimeBase is a global time base used for describing media containers.
 	TimeBase int = C.AV_TIME_BASE
 )

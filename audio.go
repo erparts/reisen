@@ -19,8 +19,7 @@ const (
 	StandardChannelCount = 2
 )
 
-// AudioStream is a stream containing
-// audio frames consisting of audio samples.
+// AudioStream is a stream containing audio frames consisting of audio samples.
 type AudioStream struct {
 	baseStream
 	swrCtx     *C.SwrContext
@@ -28,74 +27,63 @@ type AudioStream struct {
 	bufferSize C.int
 }
 
-// ChannelCount returns the number of channels
-// (1 for mono, 2 for stereo, etc.).
-func (audio *AudioStream) ChannelCount() int {
-	return int(audio.codecParams.channels)
+// ChannelCount returns the number of channels (1 for mono, 2 for stereo, etc.).
+func (s *AudioStream) ChannelCount() int {
+	return int(s.params.channels)
 }
 
-// SampleRate returns the sample rate of the
-// audio stream.
-func (audio *AudioStream) SampleRate() int {
-	return int(audio.codecParams.sample_rate)
+// SampleRate returns the sample rate of the audio stream.
+func (s *AudioStream) SampleRate() int {
+	return int(s.params.sample_rate)
 }
 
-// FrameSize returns the number of samples
-// contained in one frame of the audio.
-func (audio *AudioStream) FrameSize() int {
-	return int(audio.codecParams.frame_size)
+// FrameSize returns the number of samples contained in one frame of the audio.
+func (s *AudioStream) FrameSize() int {
+	return int(s.params.frame_size)
 }
 
-// Open opens the audio stream to decode
-// audio frames and samples from it.
-func (audio *AudioStream) Open() error {
-	err := audio.open()
-
-	if err != nil {
+// Open opens the audio stream to decode audio frames and samples from it.
+func (s *AudioStream) Open() error {
+	if err := s.open(); err != nil {
 		return err
 	}
 
-	C.swr_alloc_set_opts2(&audio.swrCtx,
+	C.swr_alloc_set_opts2(&s.swrCtx,
 		&C.stereo,
 		C.AV_SAMPLE_FMT_S16,
-		audio.codecCtx.sample_rate,
-		&audio.codecCtx.ch_layout,
-		audio.codecCtx.sample_fmt,
-		audio.codecCtx.sample_rate,
+		s.codecCtx.sample_rate,
+		&s.codecCtx.ch_layout,
+		s.codecCtx.sample_fmt,
+		s.codecCtx.sample_rate,
 		0,
 		nil)
 
-	if audio.swrCtx == nil {
-		return fmt.Errorf(
-			"couldn't allocate an SWR context")
+	if s.swrCtx == nil {
+		return fmt.Errorf("couldn't allocate an SWR context")
 	}
 
-	status := C.swr_init(audio.swrCtx)
-
-	if status < 0 {
-		return fmt.Errorf(
-			"%d: couldn't initialize the SWR context", status)
+	if r := C.swr_init(s.swrCtx); r < 0 {
+		return fmt.Errorf("%d: couldn't initialize the SWR context", r)
 	}
 
-	audio.buffer = nil
+	s.buffer = nil
 
 	return nil
 }
 
 // ReadFrame reads a new frame from the stream.
-func (audio *AudioStream) ReadFrame() (Frame, bool, error) {
-	return audio.ReadAudioFrame()
+func (s *AudioStream) ReadFrame() (Frame, bool, error) {
+	return s.ReadAudioFrame()
 }
 
 // ReadAudioFrame reads a new audio frame from the stream.
-func (audio *AudioStream) ReadAudioFrame() (*AudioFrame, bool, error) {
-	ok, err := audio.read()
-
+func (s *AudioStream) ReadAudioFrame() (*AudioFrame, bool, error) {
+	ok, err := s.read()
 	if err != nil {
 		return nil, false, err
 	}
 
-	if ok && audio.skip {
+	if ok && s.skip {
 		return nil, true, nil
 	}
 
@@ -106,62 +94,54 @@ func (audio *AudioStream) ReadAudioFrame() (*AudioFrame, bool, error) {
 
 	maxBufferSize := C.av_samples_get_buffer_size(
 		nil, StandardChannelCount,
-		audio.frame.nb_samples,
+		s.frame.nb_samples,
 		C.AV_SAMPLE_FMT_S16, 1)
 
 	if maxBufferSize < 0 {
-		return nil, false, fmt.Errorf(
-			"%d: couldn't get the max buffer size", maxBufferSize)
+		return nil, false, fmt.Errorf("%d: couldn't get the max buffer size", maxBufferSize)
 	}
 
-	if maxBufferSize > audio.bufferSize {
-		C.av_free(unsafe.Pointer(audio.buffer))
-		audio.buffer = nil
+	if maxBufferSize > s.bufferSize {
+		C.av_free(unsafe.Pointer(s.buffer))
+		s.buffer = nil
 	}
 
-	if audio.buffer == nil {
-		audio.buffer = (*C.uint8_t)(unsafe.Pointer(
-			C.av_malloc(bufferSize(maxBufferSize))))
-		audio.bufferSize = maxBufferSize
+	if s.buffer == nil {
+		s.buffer = (*C.uint8_t)(unsafe.Pointer(C.av_malloc(bufferSize(maxBufferSize))))
+		s.bufferSize = maxBufferSize
 
-		if audio.buffer == nil {
+		if s.buffer == nil {
 			return nil, false, fmt.Errorf(
 				"couldn't allocate an AV buffer")
 		}
 	}
 
-	gotSamples := C.swr_convert(audio.swrCtx,
-		&audio.buffer, audio.frame.nb_samples,
-		&audio.frame.data[0], audio.frame.nb_samples)
+	gotSamples := C.swr_convert(s.swrCtx,
+		&s.buffer, s.frame.nb_samples,
+		&s.frame.data[0], s.frame.nb_samples)
 
 	if gotSamples < 0 {
-		return nil, false, fmt.Errorf(
-			"%d: couldn't convert the audio frame", gotSamples)
+		return nil, false, fmt.Errorf("%d: couldn't convert the audio frame", gotSamples)
 	}
 
-	data := C.GoBytes(unsafe.Pointer(
-		audio.buffer), maxBufferSize)
-	frame := newAudioFrame(audio,
-		int64(audio.frame.pts),
-		int(audio.frame.coded_picture_number),
-		int(audio.frame.display_picture_number), data)
+	data := C.GoBytes(unsafe.Pointer(s.buffer), maxBufferSize)
+	frame := newAudioFrame(s,
+		int64(s.frame.pts),
+		int(s.frame.coded_picture_number),
+		int(s.frame.display_picture_number), data)
 
 	return frame, true, nil
 }
 
-// Close closes the audio stream and
-// stops decoding audio frames.
-func (audio *AudioStream) Close() error {
-	err := audio.close()
-
-	if err != nil {
+// Close closes the audio stream and stops decoding audio frames.
+func (s *AudioStream) Close() error {
+	if err := s.close(); err != nil {
 		return err
 	}
 
-	C.av_free(unsafe.Pointer(audio.buffer))
-	audio.buffer = nil
-	C.swr_free(&audio.swrCtx)
-	audio.swrCtx = nil
-
+	C.av_free(unsafe.Pointer(s.buffer))
+	s.buffer = nil
+	C.swr_free(&s.swrCtx)
+	s.swrCtx = nil
 	return nil
 }

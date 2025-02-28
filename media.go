@@ -14,34 +14,54 @@ import (
 	"unsafe"
 )
 
-// Media is a media file containing
-// audio, video and other types of streams.
+// Media is a media file containing audio, video and other types of streams.
 type Media struct {
 	ctx     *C.AVFormatContext
 	packet  *C.AVPacket
 	streams []Stream
 }
 
-// StreamCount returns the number of streams.
-func (media *Media) StreamCount() int {
-	return int(media.ctx.nb_streams)
+// NewMedia returns a new media container analyzer for the specified media file.
+func NewMedia(filename string) (*Media, error) {
+	media := &Media{
+		ctx: C.avformat_alloc_context(),
+	}
+
+	if media.ctx == nil {
+		return nil, fmt.Errorf("couldn't create a new media context")
+	}
+
+	fname := C.CString(filename)
+	if C.avformat_open_input(&media.ctx, fname, nil, nil) < 0 {
+		return nil, fmt.Errorf("couldn't open file %s", filename)
+	}
+
+	C.free(unsafe.Pointer(fname))
+	if err := media.findStreams(); err != nil {
+		return nil, err
+	}
+
+	return media, nil
 }
 
-// Streams returns a slice of all the available
-// media data streams.
-func (media *Media) Streams() []Stream {
-	streams := make([]Stream, len(media.streams))
-	copy(streams, media.streams)
+// StreamCount returns the number of streams.
+func (m *Media) StreamCount() int {
+	return int(m.ctx.nb_streams)
+}
+
+// Streams returns a slice of all the available media data streams.
+func (m *Media) Streams() []Stream {
+	streams := make([]Stream, len(m.streams))
+	copy(streams, m.streams)
 
 	return streams
 }
 
-// VideoStreams returns all the
-// video streams of the media file.
-func (media *Media) VideoStreams() []*VideoStream {
+// VideoStreams returns all the video streams of the media file.
+func (m *Media) VideoStreams() []*VideoStream {
 	videoStreams := []*VideoStream{}
 
-	for _, stream := range media.streams {
+	for _, stream := range m.streams {
 		if videoStream, ok := stream.(*VideoStream); ok {
 			videoStreams = append(videoStreams, videoStream)
 		}
@@ -50,12 +70,11 @@ func (media *Media) VideoStreams() []*VideoStream {
 	return videoStreams
 }
 
-// AudioStreams returns all the
-// audio streams of the media file.
-func (media *Media) AudioStreams() []*AudioStream {
+// AudioStreams returns all the audio streams of the media file.
+func (m *Media) AudioStreams() []*AudioStream {
 	audioStreams := []*AudioStream{}
 
-	for _, stream := range media.streams {
+	for _, stream := range m.streams {
 		if audioStream, ok := stream.(*AudioStream); ok {
 			audioStreams = append(audioStreams, audioStream)
 		}
@@ -66,30 +85,30 @@ func (media *Media) AudioStreams() []*AudioStream {
 
 // Duration returns the overall duration
 // of the media file.
-func (media *Media) Duration() (time.Duration, error) {
-	dur := media.ctx.duration
+func (m *Media) Duration() (time.Duration, error) {
+	dur := m.ctx.duration
 	tm := float64(dur) / float64(TimeBase)
 
 	return time.ParseDuration(fmt.Sprintf("%fs", tm))
 }
 
 // FormatName returns the name of the media format.
-func (media *Media) FormatName() string {
-	if media.ctx.iformat.name == nil {
+func (m *Media) FormatName() string {
+	if m.ctx.iformat.name == nil {
 		return ""
 	}
 
-	return C.GoString(media.ctx.iformat.name)
+	return C.GoString(m.ctx.iformat.name)
 }
 
 // FormatLongName returns the long name
 // of the media container.
-func (media *Media) FormatLongName() string {
-	if media.ctx.iformat.long_name == nil {
+func (m *Media) FormatLongName() string {
+	if m.ctx.iformat.long_name == nil {
 		return ""
 	}
 
-	return C.GoString(media.ctx.iformat.long_name)
+	return C.GoString(m.ctx.iformat.long_name)
 }
 
 // FormatMIMEType returns the MIME type name
@@ -104,17 +123,14 @@ func (media *Media) FormatMIMEType() string {
 
 // findStreams retrieves the stream information
 // from the media container.
-func (media *Media) findStreams() error {
+func (m *Media) findStreams() error {
 	streams := []Stream{}
-	status := C.avformat_find_stream_info(media.ctx, nil)
 
-	if status < 0 {
-		return fmt.Errorf(
-			"couldn't find stream information")
+	if C.avformat_find_stream_info(m.ctx, nil) < 0 {
+		return fmt.Errorf("couldn't find stream information")
 	}
 
-	innerStreams := unsafe.Slice(
-		media.ctx.streams, media.ctx.nb_streams)
+	innerStreams := unsafe.Slice(m.ctx.streams, m.ctx.nb_streams)
 
 	for _, innerStream := range innerStreams {
 		codecParams := innerStream.codecpar
@@ -123,8 +139,8 @@ func (media *Media) findStreams() error {
 		if codec == nil {
 			unknownStream := new(UnknownStream)
 			unknownStream.inner = innerStream
-			unknownStream.codecParams = codecParams
-			unknownStream.media = media
+			unknownStream.params = codecParams
+			unknownStream.media = m
 
 			streams = append(streams, unknownStream)
 
@@ -135,33 +151,33 @@ func (media *Media) findStreams() error {
 		case C.AVMEDIA_TYPE_VIDEO:
 			videoStream := new(VideoStream)
 			videoStream.inner = innerStream
-			videoStream.codecParams = codecParams
+			videoStream.params = codecParams
 			videoStream.codec = codec
-			videoStream.media = media
+			videoStream.media = m
 
 			streams = append(streams, videoStream)
 
 		case C.AVMEDIA_TYPE_AUDIO:
 			audioStream := new(AudioStream)
 			audioStream.inner = innerStream
-			audioStream.codecParams = codecParams
+			audioStream.params = codecParams
 			audioStream.codec = codec
-			audioStream.media = media
+			audioStream.media = m
 
 			streams = append(streams, audioStream)
 
 		default:
 			unknownStream := new(UnknownStream)
 			unknownStream.inner = innerStream
-			unknownStream.codecParams = codecParams
+			unknownStream.params = codecParams
 			unknownStream.codec = codec
-			unknownStream.media = media
+			unknownStream.media = m
 
 			streams = append(streams, unknownStream)
 		}
 	}
 
-	media.streams = streams
+	m.streams = streams
 
 	return nil
 }
@@ -169,10 +185,10 @@ func (media *Media) findStreams() error {
 // OpenDecode opens the media container for decoding.
 //
 // CloseDecode() should be called afterwards.
-func (media *Media) OpenDecode() error {
-	media.packet = C.av_packet_alloc()
+func (m *Media) OpenDecode() error {
+	m.packet = C.av_packet_alloc()
 
-	if media.packet == nil {
+	if m.packet == nil {
 		return fmt.Errorf(
 			"couldn't allocate a new packet")
 	}
@@ -181,11 +197,9 @@ func (media *Media) OpenDecode() error {
 }
 
 // ReadPacket reads the next packet from the media stream.
-func (media *Media) ReadPacket() (*Packet, bool, error) {
-	status := C.av_read_frame(media.ctx, media.packet)
-
-	if status < 0 {
-		if status == C.int(ErrorAgain) {
+func (m *Media) ReadPacket() (*Packet, bool, error) {
+	if r := C.av_read_frame(m.ctx, m.packet); r < 0 {
+		if r == C.int(ErrorAgain) {
 			return nil, true, nil
 		}
 
@@ -194,83 +208,42 @@ func (media *Media) ReadPacket() (*Packet, bool, error) {
 	}
 
 	// Filter the packet if needed.
-	packetStream := media.streams[media.packet.stream_index]
-	outPacket := media.packet
+	packetStream := m.streams[m.packet.stream_index]
+	outPacket := m.packet
 
 	if packetStream.filter() != nil {
 		filter := packetStream.filter()
 		packetIn := packetStream.filterIn()
 		packetOut := packetStream.filterOut()
 
-		status = C.av_packet_ref(packetIn, media.packet)
-
-		if status < 0 {
-			return nil, false,
-				fmt.Errorf("%d: couldn't reference the packet",
-					status)
+		if status := C.av_packet_ref(packetIn, m.packet); status < 0 {
+			return nil, false, fmt.Errorf("%d: couldn't reference the packet", status)
 		}
 
-		status = C.av_bsf_send_packet(filter, packetIn)
-
-		if status < 0 {
-			return nil, false,
-				fmt.Errorf("%d: couldn't send the packet to the filter",
-					status)
+		if status := C.av_bsf_send_packet(filter, packetIn); status < 0 {
+			return nil, false, fmt.Errorf("%d: couldn't send the packet to the filter", status)
 		}
 
-		status = C.av_bsf_receive_packet(filter, packetOut)
-
-		if status < 0 {
-			return nil, false,
-				fmt.Errorf("%d: couldn't receive the packet from the filter",
-					status)
+		if status := C.av_bsf_receive_packet(filter, packetOut); status < 0 {
+			return nil, false, fmt.Errorf("%d: couldn't receive the packet from the filter", status)
 		}
 
 		outPacket = packetOut
 	}
 
-	return newPacket(media, outPacket), true, nil
+	return newPacket(m, outPacket), true, nil
 }
 
 // CloseDecode closes the media container for decoding.
-func (media *Media) CloseDecode() error {
-	C.av_packet_free(&media.packet)
-	media.packet = nil
+func (m *Media) CloseDecode() error {
+	C.av_packet_free(&m.packet)
+	m.packet = nil
 
 	return nil
 }
 
 // Close closes the media container.
-func (media *Media) Close() {
-	C.avformat_close_input(&media.ctx)
-	media.ctx = nil
-}
-
-// NewMedia returns a new media container analyzer
-// for the specified media file.
-func NewMedia(filename string) (*Media, error) {
-	media := &Media{
-		ctx: C.avformat_alloc_context(),
-	}
-
-	if media.ctx == nil {
-		return nil, fmt.Errorf(
-			"couldn't create a new media context")
-	}
-
-	fname := C.CString(filename)
-	status := C.avformat_open_input(&media.ctx, fname, nil, nil)
-
-	if status < 0 {
-		return nil, fmt.Errorf(
-			"couldn't open file %s", filename)
-	}
-
-	C.free(unsafe.Pointer(fname))
-	err := media.findStreams()
-	if err != nil {
-		return nil, err
-	}
-
-	return media, nil
+func (m *Media) Close() {
+	C.avformat_close_input(&m.ctx)
+	m.ctx = nil
 }

@@ -8,11 +8,8 @@ package reisen
 import "C"
 import "unsafe"
 
-// Packet is a piece of encoded data
-// acquired from the media container.
-//
-// It can be either a video frame or
-// an audio frame.
+// Packet is a piece of encoded data acquired from the media container.
+// It can be either a video frame or an audio frame.
 type Packet struct {
 	media       *Media
 	streamIndex int
@@ -23,30 +20,6 @@ type Packet struct {
 	duration    int64
 	size        int
 	flags       int
-}
-
-// StreamIndex returns the index of the
-// stream the packet belongs to.
-func (pkt *Packet) StreamIndex() int {
-	return pkt.streamIndex
-}
-
-// Type returns the type of the packet
-// (video or audio).
-func (pkt *Packet) Type() StreamType {
-	return pkt.media.Streams()[pkt.streamIndex].Type()
-}
-
-// Data returns the data
-// encoded in the packet.
-func (pkt *Packet) Data() []byte {
-	return pkt.data
-}
-
-// Returns the size of the
-// packet data.
-func (pkt *Packet) Size() int {
-	return pkt.size
 }
 
 // newPacket creates a
@@ -68,4 +41,24 @@ func newPacket(media *Media, cPkt *C.AVPacket) *Packet {
 	}
 
 	return pkt
+}
+
+// StreamIndex returns the index of the stream the packet belongs to.
+func (p *Packet) StreamIndex() int {
+	return p.streamIndex
+}
+
+// Type returns the type of the packet (video or audio).
+func (p *Packet) Type() StreamType {
+	return p.media.Streams()[p.streamIndex].Type()
+}
+
+// Data returns the data encoded in the packet.
+func (p *Packet) Data() []byte {
+	return p.data
+}
+
+// Returns the size of the packet data.
+func (p *Packet) Size() int {
+	return p.size
 }

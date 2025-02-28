@@ -117,12 +117,11 @@ type Stream interface {
 	Close() error
 }
 
-// baseStream holds the information
-// common for all media data streams.
+// baseStream holds the information common for all media data streams.
 type baseStream struct {
 	media           *Media
 	inner           *C.AVStream
-	codecParams     *C.AVCodecParameters
+	params          *C.AVCodecParameters
 	codec           *C.AVCodec
 	codecCtx        *C.AVCodecContext
 	frame           *C.AVFrame
@@ -134,188 +133,160 @@ type baseStream struct {
 	opened          bool
 }
 
-// Opened returns 'true' if the stream
-// is opened for decoding, and 'false' otherwise.
-func (stream *baseStream) Opened() bool {
-	return stream.opened
+// Opened returns 'true' if the stream is opened for decoding, and 'false' otherwise.
+func (s *baseStream) Opened() bool {
+	return s.opened
 }
 
 // Index returns the index of the stream.
-func (stream *baseStream) Index() int {
-	return int(stream.inner.index)
+func (s *baseStream) Index() int {
+	return int(s.inner.index)
 }
 
 // Type returns the stream media data type.
-func (stream *baseStream) Type() StreamType {
-	return StreamType(stream.codecParams.codec_type)
+func (s *baseStream) Type() StreamType {
+	return StreamType(s.params.codec_type)
 }
 
-// CodecName returns the name of the codec
-// that was used for encoding the stream.
-func (stream *baseStream) CodecName() string {
-	if stream.codec.name == nil {
+// CodecName returns the name of the codec that was used for encoding the stream.
+func (s *baseStream) CodecName() string {
+	if s.codec.name == nil {
 		return ""
 	}
 
-	return C.GoString(stream.codec.name)
+	return C.GoString(s.codec.name)
 }
 
-// CodecName returns the long name of the
-// codec that was used for encoding the stream.
-func (stream *baseStream) CodecLongName() string {
-	if stream.codec.long_name == nil {
+// CodecName returns the long name of the codec that was used for encoding the stream.
+func (s *baseStream) CodecLongName() string {
+	if s.codec.long_name == nil {
 		return ""
 	}
 
-	return C.GoString(stream.codec.long_name)
+	return C.GoString(s.codec.long_name)
 }
 
 // BitRate returns the bit rate of the stream (in bps).
-func (stream *baseStream) BitRate() int64 {
-	return int64(stream.codecParams.bit_rate)
+func (s *baseStream) BitRate() int64 {
+	return int64(s.params.bit_rate)
 }
 
 // Duration returns the duration of the stream.
-func (stream *baseStream) Duration() (time.Duration, error) {
-	dur := stream.inner.duration
+func (s *baseStream) Duration() (time.Duration, error) {
+	dur := s.inner.duration
 
 	if dur < 0 {
 		dur = 0
 	}
 
-	tmNum, tmDen := stream.TimeBase()
+	tmNum, tmDen := s.TimeBase()
 	factor := float64(tmNum) / float64(tmDen)
 	tm := float64(dur) * factor
 
 	return time.ParseDuration(fmt.Sprintf("%fs", tm))
 }
 
-// TimeBase the numerator and the denominator of the
-// stream time base factor fraction.
+// TimeBase the numerator and the denominator of the stream time base factor fraction.
 //
-// All the duration values of the stream are
-// multiplied by this factor to get duration
+// All the duration values of the stream are multiplied by this factor to get duration
 // in seconds.
-func (stream *baseStream) TimeBase() (int, int) {
-	return int(stream.inner.time_base.num),
-		int(stream.inner.time_base.den)
+func (s *baseStream) TimeBase() (int, int) {
+	return int(s.inner.time_base.num),
+		int(s.inner.time_base.den)
 }
 
-// FrameRate returns the frame rate of the stream
-// as a fraction with a numerator and a denominator.
-func (stream *baseStream) FrameRate() (int, int) {
-	return int(stream.inner.r_frame_rate.num),
-		int(stream.inner.r_frame_rate.den)
+// FrameRate returns the frame rate of the stream as a fraction with a numerator and a denominator.
+func (s *baseStream) FrameRate() (int, int) {
+	return int(s.inner.r_frame_rate.num),
+		int(s.inner.r_frame_rate.den)
 }
 
-// FrameCount returns the total number of frames
-// in the stream.
-func (stream *baseStream) FrameCount() int64 {
-	return int64(stream.inner.nb_frames)
+// FrameCount returns the total number of frames in the stream.
+func (s *baseStream) FrameCount() int64 {
+	return int64(s.inner.nb_frames)
 }
 
-// ApplyFilter applies a filter defined
-// by the given string to the stream.
-func (stream *baseStream) ApplyFilter(args string) error {
+// ApplyFilter applies a filter defined by the given string to the stream.
+func (s *baseStream) ApplyFilter(args string) error {
 	cArgs := C.CString(args)
 	defer C.free(unsafe.Pointer(cArgs))
-	status := C.av_bsf_list_parse_str(cArgs, &stream.filterCtx)
 
-	if status < 0 {
+	if r := C.av_bsf_list_parse_str(cArgs, &s.filterCtx); r < 0 {
 		return fmt.Errorf(
-			"%d: couldn't create a filter context", status)
+			"%d: couldn't create a filter context", r)
 	}
 
-	status = C.avcodec_parameters_copy(stream.filterCtx.par_in, stream.codecParams)
-
-	if status < 0 {
-		return fmt.Errorf(
-			"%d: couldn't copy the input codec parameters to the filter", status)
+	if r := C.avcodec_parameters_copy(s.filterCtx.par_in, s.params); r < 0 {
+		return fmt.Errorf("%d: couldn't copy the input codec parameters to the filter", r)
 	}
 
-	status = C.avcodec_parameters_copy(stream.filterCtx.par_out, stream.codecParams)
-
-	if status < 0 {
-		return fmt.Errorf(
-			"%d: couldn't copy the output codec parameters to the filter", status)
+	if r := C.avcodec_parameters_copy(s.filterCtx.par_out, s.params); r < 0 {
+		return fmt.Errorf("%d: couldn't copy the output codec parameters to the filter", r)
 	}
 
-	stream.filterCtx.time_base_in = stream.inner.time_base
-	stream.filterCtx.time_base_out = stream.inner.time_base
+	s.filterCtx.time_base_in = s.inner.time_base
+	s.filterCtx.time_base_out = s.inner.time_base
 
-	status = C.av_bsf_init(stream.filterCtx)
-
-	if status < 0 {
-		return fmt.Errorf(
-			"%d: couldn't initialize the filter context", status)
+	if r := C.av_bsf_init(s.filterCtx); r < 0 {
+		return fmt.Errorf("%d: couldn't initialize the filter context", r)
 	}
 
-	stream.filterInPacket = C.av_packet_alloc()
-
-	if stream.filterInPacket == nil {
-		return fmt.Errorf(
-			"couldn't allocate a packet for filtering in")
+	s.filterInPacket = C.av_packet_alloc()
+	if s.filterInPacket == nil {
+		return fmt.Errorf("couldn't allocate a packet for filtering in")
 	}
 
-	stream.filterOutPacket = C.av_packet_alloc()
-
-	if stream.filterInPacket == nil {
-		return fmt.Errorf(
-			"couldn't allocate a packet for filtering out")
+	s.filterOutPacket = C.av_packet_alloc()
+	if s.filterInPacket == nil {
+		return fmt.Errorf("couldn't allocate a packet for filtering out")
 	}
 
-	stream.filterArgs = args
+	s.filterArgs = args
 
 	return nil
 }
 
-// Filter returns the name and arguments
-// of the filter currently applied to the
+// Filter returns the name and arguments of the filter currently applied to the
 // stream or "" if no filter applied.
-func (stream *baseStream) Filter() string {
-	return stream.filterArgs
+func (s *baseStream) Filter() string {
+	return s.filterArgs
 }
 
-// RemoveFilter removes the currently applied
-// filter from the stream and frees its memory.
-func (stream *baseStream) RemoveFilter() error {
-	if stream.filterCtx == nil {
+// RemoveFilter removes the currently applied filter from the stream and frees its memory.
+func (s *baseStream) RemoveFilter() error {
+	if s.filterCtx == nil {
 		return fmt.Errorf("no filter applied")
 	}
 
-	C.av_bsf_free(&stream.filterCtx)
-	stream.filterCtx = nil
+	C.av_bsf_free(&s.filterCtx)
+	s.filterCtx = nil
 
-	C.av_packet_free(&stream.filterInPacket)
-	C.av_packet_free(&stream.filterOutPacket)
-	stream.filterInPacket = nil
-	stream.filterOutPacket = nil
+	C.av_packet_free(&s.filterInPacket)
+	C.av_packet_free(&s.filterOutPacket)
+	s.filterInPacket = nil
+	s.filterOutPacket = nil
 
 	return nil
 }
 
-// Rewind rewinds the stream to
-// the specified time position.
+// Rewind rewinds the stream to the specified time position.
 //
-// Can be used on all the types
-// of streams. However, it's better
-// to use it on the video stream of
-// the media file if you don't want
-// the streams of the playback to
-// desynchronyze.
-func (stream *baseStream) Rewind(t time.Duration) error {
-	tmNum, tmDen := stream.TimeBase()
+// Can be used on all the types of streams. However, it's better to use it on
+// the video stream ofthe media file if you don't want the streams of the
+// playback to desynchronyze.
+func (s *baseStream) Rewind(t time.Duration) error {
+	tmNum, tmDen := s.TimeBase()
 	factor := float64(tmDen) / float64(tmNum)
 	seconds := t.Seconds()
 	dur := int64(seconds * factor)
 
-	status := C.av_seek_frame(stream.media.ctx,
-		stream.inner.index, rewindPosition(dur),
+	r := C.av_seek_frame(s.media.ctx,
+		s.inner.index, rewindPosition(dur),
 		C.AVSEEK_FLAG_FRAME|C.AVSEEK_FLAG_BACKWARD)
 
-	if status < 0 {
+	if r < 0 {
 		return fmt.Errorf(
-			"%d: couldn't rewind the stream", status)
+			"%d: couldn't rewind the stream", r)
 	}
 
 	return nil
@@ -323,135 +294,113 @@ func (stream *baseStream) Rewind(t time.Duration) error {
 
 // innerStream returns the inner
 // libAV stream of the Stream object.
-func (stream *baseStream) innerStream() *C.AVStream {
-	return stream.inner
+func (s *baseStream) innerStream() *C.AVStream {
+	return s.inner
 }
 
 // filter returns the filter context of the stream.
-func (stream *baseStream) filter() *C.AVBSFContext {
-	return stream.filterCtx
+func (s *baseStream) filter() *C.AVBSFContext {
+	return s.filterCtx
 }
 
 // filterIn returns the input
 // packet for the stream filter.
-func (stream *baseStream) filterIn() *C.AVPacket {
-	return stream.filterInPacket
+func (s *baseStream) filterIn() *C.AVPacket {
+	return s.filterInPacket
 }
 
 // filterOut returns the output
 // packet for the stream filter.
-func (stream *baseStream) filterOut() *C.AVPacket {
-	return stream.filterOutPacket
+func (s *baseStream) filterOut() *C.AVPacket {
+	return s.filterOutPacket
 }
 
 // open opens the stream for decoding.
-func (stream *baseStream) open() error {
-	stream.codecCtx = C.avcodec_alloc_context3(stream.codec)
-
-	if stream.codecCtx == nil {
+func (s *baseStream) open() error {
+	s.codecCtx = C.avcodec_alloc_context3(s.codec)
+	if s.codecCtx == nil {
 		return fmt.Errorf("couldn't open a codec context")
 	}
 
-	status := C.avcodec_parameters_to_context(
-		stream.codecCtx, stream.codecParams)
-
-	if status < 0 {
-		return fmt.Errorf(
-			"%d: couldn't send codec parameters to the context", status)
+	if r := C.avcodec_parameters_to_context(s.codecCtx, s.params); r < 0 {
+		return fmt.Errorf("%d: couldn't send codec parameters to the context", r)
 	}
 
-	status = C.avcodec_open2(stream.codecCtx, stream.codec, nil)
-
-	if status < 0 {
-		return fmt.Errorf(
-			"%d: couldn't open the codec context", status)
+	if r := C.avcodec_open2(s.codecCtx, s.codec, nil); r < 0 {
+		return fmt.Errorf("%d: couldn't open the codec context", r)
 	}
 
-	stream.frame = C.av_frame_alloc()
-
-	if stream.frame == nil {
-		return fmt.Errorf(
-			"couldn't allocate a new frame")
+	s.frame = C.av_frame_alloc()
+	if s.frame == nil {
+		return fmt.Errorf("couldn't allocate a new frame")
 	}
 
-	stream.opened = true
-
+	s.opened = true
 	return nil
 }
 
-// read decodes the packet and obtains a
-// frame from it.
-func (stream *baseStream) read() (bool, error) {
-	readPacket := stream.media.packet
+// read decodes the packet and obtains a frame from it.
+func (s *baseStream) read() (bool, error) {
+	readPacket := s.media.packet
 
-	if stream.filterCtx != nil {
-		readPacket = stream.filterOutPacket
+	if s.filterCtx != nil {
+		readPacket = s.filterOutPacket
 	}
 
-	status := C.avcodec_send_packet(
-		stream.codecCtx, readPacket)
-
-	if status < 0 {
-		stream.skip = false
-
-		return false, fmt.Errorf(
-			"%d: couldn't send the packet to the codec context", status)
+	if r := C.avcodec_send_packet(s.codecCtx, readPacket); r < 0 {
+		s.skip = false
+		return false, fmt.Errorf("%d: couldn't send the packet to the codec context", r)
 	}
 
-	status = C.avcodec_receive_frame(
-		stream.codecCtx, stream.frame)
-
-	if status < 0 {
-		if status == C.int(ErrorAgain) {
-			stream.skip = true
+	if r := C.avcodec_receive_frame(s.codecCtx, s.frame); r < 0 {
+		if r == C.int(ErrorAgain) {
+			s.skip = true
 			return true, nil
 		}
 
-		stream.skip = false
-
-		return false, fmt.Errorf(
-			"%d: couldn't receive the frame from the codec context", status)
+		s.skip = false
+		return false, fmt.Errorf("%d: couldn't receive the frame from the codec context", r)
 	}
 
-	C.av_packet_unref(stream.media.packet)
+	C.av_packet_unref(s.media.packet)
 
-	if stream.filterInPacket != nil {
-		C.av_packet_unref(stream.filterInPacket)
+	if s.filterInPacket != nil {
+		C.av_packet_unref(s.filterInPacket)
 	}
 
-	if stream.filterOutPacket != nil {
-		C.av_packet_unref(stream.filterOutPacket)
+	if s.filterOutPacket != nil {
+		C.av_packet_unref(s.filterOutPacket)
 	}
 
-	stream.skip = false
+	s.skip = false
 
 	return true, nil
 }
 
 // close closes the stream for decoding.
-func (stream *baseStream) close() error {
-	C.av_frame_free(&stream.frame)
-	stream.frame = nil
+func (s *baseStream) close() error {
+	C.av_frame_free(&s.frame)
+	s.frame = nil
 
-	C.avcodec_free_context(&stream.codecCtx)
-	stream.codecCtx = nil
+	C.avcodec_free_context(&s.codecCtx)
+	s.codecCtx = nil
 
-	if stream.filterCtx != nil {
-		C.av_bsf_free(&stream.filterCtx)
-		stream.filterCtx = nil
+	if s.filterCtx != nil {
+		C.av_bsf_free(&s.filterCtx)
+		s.filterCtx = nil
 	}
 
-	if stream.filterInPacket != nil {
-		C.av_free(unsafe.Pointer(stream.filterInPacket))
-		stream.filterInPacket = nil
+	if s.filterInPacket != nil {
+		C.av_free(unsafe.Pointer(s.filterInPacket))
+		s.filterInPacket = nil
 	}
 
-	if stream.filterOutPacket != nil {
-		C.av_free(unsafe.Pointer(stream.filterOutPacket))
-		stream.filterOutPacket = nil
+	if s.filterOutPacket != nil {
+		C.av_free(unsafe.Pointer(s.filterOutPacket))
+		s.filterOutPacket = nil
 	}
 
-	stream.opened = false
+	s.opened = false
 
 	return nil
 }
