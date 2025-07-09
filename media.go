@@ -1,11 +1,12 @@
 package reisen
 
-// #cgo pkg-config: libavformat libavcodec libavutil libswscale
+// #cgo pkg-config: libavformat libavcodec libavutil libswscale libavdevice
 // #include <libavcodec/avcodec.h>
 // #include <libavformat/avformat.h>
 // #include <libavutil/avconfig.h>
 // #include <libswscale/swscale.h>
 // #include <libavcodec/bsf.h>
+// #include <libavdevice/avdevice.h>
 import "C"
 
 import (
@@ -18,21 +19,49 @@ import (
 type Media struct {
 	ctx     *C.AVFormatContext
 	packet  *C.AVPacket
+	opts    *Options
 	streams []Stream
 }
 
-// NewMedia returns a new media container analyzer for the specified media file.
+// Options contains the options for the media.
+type Options struct {
+	// InputFormat short name of the input format.
+	InputFormat string
+}
+
+// NewMedia returns a new media container for the specified media file.
 func NewMedia(filename string) (*Media, error) {
+	return NewMediaWithOptions(filename, &Options{
+		InputFormat: "v4l2",
+	})
+}
+
+// NewMediaWithOptions returns a new media container for the specified media file
+// using the specified options.
+func NewMediaWithOptions(filename string, opts *Options) (*Media, error) {
 	media := &Media{
-		ctx: C.avformat_alloc_context(),
+		ctx:  C.avformat_alloc_context(),
+		opts: opts,
 	}
 
 	if media.ctx == nil {
 		return nil, fmt.Errorf("couldn't create a new media context")
 	}
 
+	var inputFormat *C.AVInputFormat
+	if opts != nil && opts.InputFormat != "" {
+		C.avdevice_register_all()
+
+		cInputFormat := C.CString(opts.InputFormat)
+		defer C.free(unsafe.Pointer(cInputFormat))
+		inputFormat = C.av_find_input_format(cInputFormat)
+		if inputFormat == nil {
+			return nil, fmt.Errorf("couldn't find input format %q", opts.InputFormat)
+		}
+	}
+
 	fname := C.CString(filename)
-	if C.avformat_open_input(&media.ctx, fname, nil, nil) < 0 {
+	if C.avformat_open_input(&media.ctx, fname, inputFormat, nil) < 0 {
 		return nil, fmt.Errorf("couldn't open file %s", filename)
 	}
 
@@ -135,7 +164,6 @@ func (m *Media) findStreams() error {
 	for _, innerStream := range innerStreams {
 		codecParams := innerStream.codecpar
 		codec := C.avcodec_find_decoder(codecParams.codec_id)
-
 		if codec == nil {
 			unknownStream := new(UnknownStream)
 			unknownStream.inner = innerStream
@@ -178,7 +206,6 @@ func (m *Media) findStreams() error {
 	}
 
 	m.streams = streams
-
 	return nil
 }
 
