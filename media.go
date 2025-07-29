@@ -31,9 +31,7 @@ type Options struct {
 
 // NewMedia returns a new media container for the specified media file.
 func NewMedia(filename string) (*Media, error) {
-	return NewMediaWithOptions(filename, &Options{
-		InputFormat: "v4l2",
-	})
+	return NewMediaWithOptions(filename, &Options{})
 }
 
 // NewMediaWithOptions returns a new media container for the specified media file
