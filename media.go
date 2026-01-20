@@ -1,15 +1,48 @@
 package reisen
 
-// #cgo pkg-config: libavformat libavcodec libavutil libswscale libavdevice
-// #include <libavcodec/avcodec.h>
-// #include <libavformat/avformat.h>
-// #include <libavutil/avconfig.h>
-// #include <libswscale/swscale.h>
-// #include <libavcodec/bsf.h>
-// #include <libavdevice/avdevice.h>
+/*
+#cgo pkg-config: libavformat libavcodec libavutil libswscale libavdevice
+#include <libavcodec/avcodec.h>
+#include <libavformat/avformat.h>
+#include <libavutil/avconfig.h>
+#include <libavutil/time.h>
+#include <libswscale/swscale.h>
+#include <libavcodec/bsf.h>
+#include <libavdevice/avdevice.h>
+#include <stdint.h>
+#include <stdlib.h>
+
+typedef struct {
+    int64_t deadline_us;
+} InterruptCtx;
+
+static inline void set_deadline(InterruptCtx *ctx, int64_t timeout_us) {
+    if (timeout_us <= 0) {
+        ctx->deadline_us = 0;
+        return;
+    }
+    ctx->deadline_us = av_gettime_relative() + timeout_us;
+}
+
+static int interrupt_cb(void *opaque) {
+    InterruptCtx *ctx = (InterruptCtx *)opaque;
+    if (!ctx) return 0;
+
+	int64_t deadline = ctx->deadline_us;
+	if (deadline <= 0) return 0;
+
+    return av_gettime_relative() > deadline;
+}
+
+static void apply_interrupt(AVFormatContext *s, InterruptCtx *ctx) {
+	s->interrupt_callback.callback = interrupt_cb;
+	s->interrupt_callback.opaque = (void *)ctx;
+}
+*/
 import "C"
 
 import (
+	"context"
 	"fmt"
 	"time"
 	"unsafe"
@@ -17,10 +50,11 @@ import (
 
 // Media is a media file containing audio, video and other types of streams.
 type Media struct {
-	ctx     *C.AVFormatContext
-	packet  *C.AVPacket
-	opts    *Options
-	streams []Stream
+	ctx       *C.AVFormatContext
+	interrupt *C.InterruptCtx
+	packet    *C.AVPacket
+	opts      *Options
+	streams   []Stream
 }
 
 // Options contains the options for the media.
@@ -38,13 +72,16 @@ func NewMedia(filename string) (*Media, error) {
 // using the specified options.
 func NewMediaWithOptions(filename string, opts *Options) (*Media, error) {
 	media := &Media{
-		ctx:  C.avformat_alloc_context(),
-		opts: opts,
+		ctx:       C.avformat_alloc_context(),
+		interrupt: (*C.InterruptCtx)(C.malloc(C.size_t(C.sizeof_InterruptCtx))),
+		opts:      opts,
 	}
 
 	if media.ctx == nil {
 		return nil, fmt.Errorf("couldn't create a new media context")
 	}
+
+	C.apply_interrupt(media.ctx, media.interrupt)
 
 	var inputFormat *C.AVInputFormat
 	if opts != nil && opts.InputFormat != "" {
@@ -222,10 +259,26 @@ func (m *Media) OpenDecode() error {
 }
 
 // ReadPacket reads the next packet from the media stream.
+// On network streams, this function can block indefinitely.
 func (m *Media) ReadPacket() (*Packet, bool, error) {
+	return m.ReadPacketWithTimeout(0)
+}
+
+// ReadPacketWithTimeout reads the next packet from the media stream.
+// On network streams, this function will return [context.DeadlineExceeded]
+// if the given timeout elapses before the next packet can be read.
+func (m *Media) ReadPacketWithTimeout(timeout time.Duration) (*Packet, bool, error) {
+	if timeout != 0 {
+		C.set_deadline(m.interrupt, C.int64_t(timeout.Microseconds()))
+		defer C.set_deadline(m.interrupt, 0)
+	}
 	if r := C.av_read_frame(m.ctx, m.packet); r < 0 {
 		if r == C.int(ErrorAgain) {
-			return nil, true, nil
+			return nil, true, nil // TODO: shouldn't this be false?
+		}
+
+		if r == C.AVERROR_EXIT { // timeout
+			return nil, false, context.DeadlineExceeded
 		}
 
 		// No packets anymore.
