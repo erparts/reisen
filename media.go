@@ -11,6 +11,7 @@ import "C"
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 	"unsafe"
 )
@@ -27,6 +28,9 @@ type Media struct {
 type Options struct {
 	// InputFormat short name of the input format.
 	InputFormat string
+
+	// Timeout for NewMediaWithOptions when trying to connect to streams.
+	Timeout time.Duration
 }
 
 // NewMedia returns a new media container for the specified media file.
@@ -47,19 +51,28 @@ func NewMediaWithOptions(filename string, opts *Options) (*Media, error) {
 	}
 
 	var inputFormat *C.AVInputFormat
-	if opts != nil && opts.InputFormat != "" {
-		C.avdevice_register_all()
+	var dict *C.AVDictionary
+	if opts != nil {
+		if opts.InputFormat != "" {
+			C.avdevice_register_all()
 
-		cInputFormat := C.CString(opts.InputFormat)
-		defer C.free(unsafe.Pointer(cInputFormat))
-		inputFormat = C.av_find_input_format(cInputFormat)
-		if inputFormat == nil {
-			return nil, fmt.Errorf("couldn't find input format %q", opts.InputFormat)
+			cInputFormat := C.CString(opts.InputFormat)
+			defer C.free(unsafe.Pointer(cInputFormat))
+			inputFormat = C.av_find_input_format(cInputFormat)
+			if inputFormat == nil {
+				return nil, fmt.Errorf("couldn't find input format %q", opts.InputFormat)
+			}
+		}
+		if opts.Timeout != 0 {
+			cTimeout := C.CString(strconv.FormatInt(opts.Timeout.Microseconds(), 10))
+			defer C.free(unsafe.Pointer(cTimeout))
+			C.av_dict_set(&dict, C.CString("stimeout"), cTimeout, 0) // rtsp
+			C.av_dict_set(&dict, C.CString("timeout"), cTimeout, 0)  // tcp/http
 		}
 	}
 
 	fname := C.CString(filename)
-	if C.avformat_open_input(&media.ctx, fname, inputFormat, nil) < 0 {
+	if C.avformat_open_input(&media.ctx, fname, inputFormat, &dict) < 0 {
 		return nil, fmt.Errorf("couldn't open file %s", filename)
 	}
 
