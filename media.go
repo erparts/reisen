@@ -77,7 +77,7 @@ func NewMedia(filename string) (*Media, error) {
 func NewMediaWithOptions(filename string, opts *Options) (*Media, error) {
 	media := &Media{
 		ctx:       C.avformat_alloc_context(),
-		interrupt: (*C.InterruptCtx)(C.malloc(C.size_t(C.sizeof_InterruptCtx))),
+		interrupt: (*C.InterruptCtx)(C.calloc(1, C.size_t(C.sizeof_InterruptCtx))),
 		opts:      opts,
 	}
 
@@ -335,6 +335,13 @@ func (m *Media) CloseDecode() error {
 
 // Close closes the media container.
 func (m *Media) Close() {
-	C.avformat_close_input(&m.ctx)
-	m.ctx = nil
+	if m.ctx != nil {
+		C.avformat_close_input(&m.ctx)
+		m.ctx = nil
+	}
+
+	if m.interrupt != nil {
+		C.free(unsafe.Pointer(m.interrupt))
+		m.interrupt = nil
+	}
 }
